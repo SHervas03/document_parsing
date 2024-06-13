@@ -1,87 +1,79 @@
 import os
+import zipfile
+
 import pandas as pd
 from pandas import ExcelWriter
 from unidecode import unidecode
 
 
-# Función recursiva para iterar a través de los directorios y aplicar ciertos criterios
-def loop_miterd_criteria(main_folder, df_logs, depth, max_length = 50):
+def normalize_name(name, ext, max_length):
+    """
+    Normalize the file name by removing 'Propuesta_', spaces, accents, and limiting length.
 
-    # Inicialización de los DataFrames de errores y advertencias si no se han inicializado
-    if df_logs is None:
-        df_logs = {
-            'errors': pd.DataFrame(columns=['description', 'value']),
-            'Warning': pd.DataFrame(columns=['description', 'value'])
-        }
+    :param name: The original name of the file without extension.
+    :param ext: The file extension.
+    :param max_length: The maximum allowed length for the file name including the extension.
+    :return: The normalized file name.
+    """
+    name = name.replace("Propuesta_", "").replace(" ", "")
+    name = unidecode(name)[:max_length - len(ext)]
+    return name + ext
 
-    # Obtención de la lista de rutas completas de todos los elementos en el directorio principal
+
+def loop_miterd_criteria(main_folder, df_logs, depth, max_length=50):
+    """
+    Recursively check folders and files to apply criteria and log warnings or errors.
+
+    :param main_folder: The main directory to start checking.
+    :param df_logs: A dictionary containing DataFrames for logging errors and warnings.
+    :param depth: The current depth of the directory structure being checked.
+    :param max_length: The maximum allowed length for file names.
+    :return: Updated dictionary with logs of errors and warnings.
+    """
     folders = [os.path.join(main_folder, c) for c in os.listdir(main_folder)]
 
-    # Diccionario para contar los archivos con el mismo nombre
-    file_count = {}
-
-    # Iteración a través de cada ruta en la lista
     for path in folders:
 
-        # Si la ruta es un directorio
         if os.path.isdir(path):
-            # Si el directorio está vacío
             if len(os.listdir(path)) == 0:
-                # Creación de un archivo "leeme.txt" indicando que no se adjuntó documentación
                 with open(os.path.join(path, "leeme.txt"), mode="w", encoding="utf-8") as file:
                     file.write(u"En el envío no se adjuntó documentación")
             else:
-                if depth > 1:
+                if depth > 4:
                     df_ = pd.DataFrame(
                         {
                             'description': ['Exceeded depth limit (depth > 4)'],
                             'value': [path]
                         })
                     df_logs['Warning'] = pd.concat([df_logs['Warning'], df_], axis=0)
-                # Llama recursivamente a la función para iterar dentro del subdirectorio, incrementando la profundidad
                 loop_miterd_criteria(path, df_logs, depth + 1)
 
-        # Si la ruta no es un directorio (es un archivo)
-        elif not os.path.isdir(path):
+        else:
 
-            path_ = os.path.dirname(path)
             old_path = path
-            name, ext = os.path.splitext(os.path.basename(path))
+            path_, name = os.path.split(path)
+            name, ext = os.path.splitext(name)
+            name = normalize_name(name, ext, max_length)
+            path = os.path.join(path_, name)
 
-            if name in file_count:
-                file_count[name] += 1
-                path = os.path.join(path_, name[:max_length - len(ext) - file_count[name] - 1] + "_" + str(file_count[name]) + ext)
-            else:
-                file_count[name] = 0
-                path = os.path.join(path_, name[:max_length - len(ext)] + ext)
-            os.rename(old_path, unidecode(path))
-            old_path = path
+            if path != old_path:
+                os.rename(old_path, unidecode(path))
 
-            if ext in ['.doc', '.dotx', '.dotm', '.dot', '.docm', '.docb', '.rtf', '.odt', '.wps']:
-                pass
-            elif ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.tif', '.svg', '.webp']:
-                pass
-            elif ext in ['.lnk']:
+            if ext in ['.zip', '.rar', '.gz']:
+                with zipfile.ZipFile(path, 'r') as zip_ref:
+                    zip_ref.extractall(path_)
                 os.remove(path)
-            elif ext in ['.xls', '.xlsm']:
-                pass
-            elif ext in ['.pdf', '.txt', '.docx', '.xlsx']:
-                pass
-            else:
-                df_ = pd.DataFrame(
-                    {
-                        'description': ['Not file extension found'],
-                        'value': [path]
-                    })
-                df_logs['Warning'] = pd.concat([df_logs['Warning'], df_], axis=0)
 
     return df_logs
 
 
-# Función para iniciar el proceso en el directorio principal
 def fix_miterd_folder_criteria(main_folder):
+    """
+    Check the main folder and apply criteria for files and subfolders.
 
-    # Inicialización de los DataFrames de errores y advertencias
+    :param main_folder: The main directory to start checking.
+    :return: DataFrames with logs of errors and warnings.
+    """
     df_logs = \
         {
             'errors': pd.DataFrame(columns=['description', 'value']),
@@ -93,13 +85,20 @@ def fix_miterd_folder_criteria(main_folder):
     return df_logs
 
 
-if __name__ == "__main__":
-    folder_path = ".\\"
-    logs = fix_miterd_folder_criteria(os.path.join(folder_path, 'Years', '2025-2030'))
+def save_logs_to_excel(logs, excel_file):
+    """
+    Save the logs to an Excel file.
 
-    # Guardar los datos en un archivo Excel
-    excel_file = 'logs.xlsx'
+    :param logs: The logs data to be saved.
+    :param excel_file: The path to the Excel file.
+    """
     with ExcelWriter(excel_file) as writer:
         logs['Warning'].to_excel(writer, sheet_name='Warnings', index=False)
         logs['errors'].to_excel(writer, sheet_name='Errors', index=False)
     print(f"Los datos se han guardado en el archivo '{excel_file}'.")
+
+
+if __name__ == "__main__":
+    folder_path = ".\\"
+    logs = fix_miterd_folder_criteria(os.path.join(folder_path, 'Years', '2025-2030'))
+    save_logs_to_excel(logs, "logs.xlsx")
