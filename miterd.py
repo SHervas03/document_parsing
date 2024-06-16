@@ -6,17 +6,28 @@ from pandas import ExcelWriter
 from unidecode import unidecode
 
 
-def normalize_name(name, ext, max_length):
+def normalize_name(name, ext, max_length, file_count):
     """
     Normalize the file name by removing 'Propuesta_', spaces, accents, and limiting length.
 
     :param name: The original name of the file without extension.
     :param ext: The file extension.
     :param max_length: The maximum allowed length for the file name including the extension.
+    :param file_count: Dictionary to keep track of file name counts.
     :return: The normalized file name.
     """
     name = name.replace("Propuesta_", "").replace(" ", "")
     name = unidecode(name)[:max_length - len(ext)]
+
+    if name + ext not in file_count:
+        file_count[name + ext] = 0
+    file_count[name + ext] += 1
+
+    if file_count[name + ext] > 1:
+        suffix = f"_{file_count[name + ext]}"
+        new_max_length = max_length - len(suffix) - len(ext)
+        name = unidecode(name)[:new_max_length] + suffix
+
     return name + ext
 
 
@@ -31,6 +42,8 @@ def loop_miterd_criteria(main_folder, df_logs, depth, max_length=50):
     :return: Updated dictionary with logs of errors and warnings.
     """
     folders = [os.path.join(main_folder, c) for c in os.listdir(main_folder)]
+
+    file_count = {}
 
     for path in folders:
 
@@ -53,7 +66,7 @@ def loop_miterd_criteria(main_folder, df_logs, depth, max_length=50):
             old_path = path
             path_, name = os.path.split(path)
             name, ext = os.path.splitext(name)
-            name = normalize_name(name, ext, max_length)
+            name = normalize_name(name, ext, max_length, file_count)
             path = os.path.join(path_, name)
 
             if path != old_path:
